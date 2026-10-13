@@ -1,13 +1,178 @@
- <!DOCTYPE html>
+
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>2027 秋招投递管理</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>2027 秋招投递管理</title>
+<style>
+:root{font-family:system-ui,-apple-system,sans-serif;color:#172033;background:#f5f7fb}
+*{box-sizing:border-box}
+body{margin:0}
+header{background:#fff;border-bottom:1px solid #e3e8f0;padding:24px max(20px,calc((100% - 1100px)/2))}
+h1{margin:0 0 8px;font-size:27px}
+header p{margin:0;color:#64748b}
+main{max-width:1100px;margin:28px auto;padding:0 20px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:22px}
+.stat,.panel,.job{background:white;border:1px solid #e3e8f0;border-radius:12px;padding:18px}
+.stat strong{display:block;font-size:27px;margin-bottom:5px}
+.stat span,.muted{color:#64748b;font-size:13px}
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+input,select,button{font:inherit;padding:11px;border:1px solid #d9e0ea;border-radius:8px;background:white}
+input{flex:2;min-width:180px}
+select{flex:1;min-width:120px}
+button{cursor:pointer}
+button:hover{background:#eef3ff}
+.job{margin-bottom:12px}
+.job h3{margin:0 0 10px}
+.tags{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+.tag{background:#eef2f8;border-radius:6px;padding:5px 8px;font-size:12px}
+.job p{font-size:14px;color:#475569;line-height:1.6}
+.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.actions a{color:#2563eb;text-decoration:none}
+.actions select{flex:none}
+footer{text-align:center;color:#64748b;font-size:12px;padding:30px}
+@media(max-width:600px){.stats{gap:8px}.stat{padding:12px}.stat strong{font-size:21px}}
+</style>
 </head>
 <body>
-  <h1>2027 秋招投递管理系统</h1>
-  <p>GitHub Pages 部署成功！</p>
-  <p>接下来接入招聘数据和投递记录。</p>
+<header>
+<h1>2027 秋招投递管理</h1>
+<p>招聘信息检索 · 投递进度追踪</p>
+</header>
+<main>
+<div class="stats">
+<div class="stat"><strong id="total">—</strong><span>招聘信息</span></div>
+<div class="stat"><strong id="applied">0</strong><span>已投递及后续阶段</span></div>
+<div class="stat"><strong id="interviews">0</strong><span>面试中</span></div>
+</div>
+
+<div class="controls">
+<input id="search" placeholder="搜索公司、岗位、城市...">
+<select id="cohort"><option value="">全部届别</option></select>
+<select id="industry"><option value="">全部行业</option></select>
+<select id="statusFilter">
+<option value="">全部投递状态</option>
+<option value="待投递">待投递</option>
+<option value="已投递">已投递</option>
+<option value="笔试">笔试</option>
+<option value="面试">面试</option>
+<option value="Offer">Offer</option>
+<option value="已结束">已结束</option>
+</select>
+</div>
+
+<p id="count" class="muted">正在加载招聘数据...</p>
+<div id="jobs"></div>
+<div style="text-align:center;margin:20px">
+<button id="more" hidden>加载更多</button>
+</div>
+</main>
+<footer>
+招聘数据来源：
+<a href="https://github.com/xixicc186/xixicc2027">xixicc2027</a>
+<br>岗位信息请以企业官方招聘网站为准
+</footer>
+
+<script>
+let jobs=[],filtered=[],shown=0;
+const $=id=>document.getElementById(id);
+const statuses=['待投递','已投递','笔试','面试','Offer','已结束'];
+const storageKey='job-tracker-status-v1';
+let records={};
+try{records=JSON.parse(localStorage.getItem(storageKey)||'{}')}catch{records={}}
+
+function jobId(j){
+  return JSON.stringify([j.company,j.cohort,j.batch,j.program,j.apply_url]);
+}
+function make(tag,cls,content){
+  const el=document.createElement(tag);
+  if(cls)el.className=cls;
+  if(content!=null)el.textContent=content;
+  return el;
+}
+function fillSelect(id,values){
+  for(const v of [...new Set(values.filter(Boolean))].sort()){
+    const o=new Option(v,v);
+    $(id).add(o);
+  }
+}
+function updateStats(){
+  $('total').textContent=jobs.length;
+  const values=Object.values(records);
+  $('applied').textContent=values.filter(x=>['已投递','笔试','面试','Offer'].includes(x)).length;
+  $('interviews').textContent=values.filter(x=>x==='面试').length;
+}
+function filterJobs(){
+  const q=$('search').value.trim().toLowerCase();
+  filtered=jobs.filter(j=>{
+    const text=[j.company,j.program,...(j.positions||[]),...(j.locations||[])].join(' ').toLowerCase();
+    return text.includes(q)
+      && (!$('cohort').value||j.cohort===$('cohort').value)
+      && (!$('industry').value||j.industry===$('industry').value)
+      && (!$('statusFilter').value||(records[jobId(j)]||'待投递')===$('statusFilter').value);
+  });
+  shown=0;
+  $('jobs').replaceChildren();
+  $('count').textContent=`找到 ${filtered.length} 条招聘信息`;
+  showMore();
+}
+function showMore(){
+  const fragment=document.createDocumentFragment();
+  for(const j of filtered.slice(shown,shown+30)){
+    const card=make('article','job');
+    card.append(make('h3','',j.company||'未命名企业'));
+    const tags=make('div','tags');
+    for(const value of [j.cohort,j.batch,j.industry,...(j.locations||[])]){
+      if(value)tags.append(make('span','tag',value));
+    }
+    card.append(tags);
+    card.append(make('p','',j.positions?.length?j.positions.join(' · '):'具体岗位请查看官方招聘信息'));
+    if(j.deadline)card.append(make('p','muted','截止日期：'+j.deadline));
+    const actions=make('div','actions');
+    if(j.apply_url&&/^https?:\/\//i.test(j.apply_url)){
+      const a=make('a','','查看投递入口 ↗');
+      a.href=j.apply_url;
+      a.target='_blank';
+      a.rel='noopener noreferrer';
+      actions.append(a);
+    }
+    const select=make('select');
+    const id=jobId(j);
+    for(const s of statuses)select.add(new Option(s,s));
+    select.value=records[id]||'待投递';
+    select.addEventListener('change',()=>{
+      records[id]=select.value;
+      localStorage.setItem(storageKey,JSON.stringify(records));
+      updateStats();
+      if($('statusFilter').value)filterJobs();
+    });
+    actions.append(select);
+    card.append(actions);
+    fragment.append(card);
+  }
+  shown=Math.min(shown+30,filtered.length);
+  $('jobs').append(fragment);
+  $('more').hidden=shown>=filtered.length;
+}
+for(const id of ['search','cohort','industry','statusFilter']){
+  $(id).addEventListener('input',filterJobs);
+}
+$('more').addEventListener('click',showMore);
+
+fetch('./jobs.json')
+.then(r=>{if(!r.ok)throw Error('HTTP '+r.status);return r.json()})
+.then(data=>{
+  if(!Array.isArray(data))throw Error('数据格式错误');
+  jobs=data;
+  fillSelect('cohort',jobs.map(j=>j.cohort));
+  fillSelect('industry',jobs.map(j=>j.industry));
+  updateStats();
+  filterJobs();
+})
+.catch(err=>{
+  $('count').textContent='招聘数据加载失败：'+err.message;
+});
+</script>
 </body>
 </html>
